@@ -204,23 +204,9 @@ pip install denoiser
 
 ### Q5: 模型加载报错，提示找不到 config 或权重文件
 
-**原因**：模型目录结构和 `Pipeline.from_pretrained` 的用法不匹配。
+https://huggingface.co/pyannote/speaker-diarization-community-1
 
-**解决**：两种写法不能混：
-
-*   **本地目录直接加载**（目录本身就是模型）：
-    ```python
-    pipeline = Pipeline.from_pretrained(r"models/speaker-diarization-community-1")
-    ```
-*   **Hugging Face cache 结构**（目录下是 `models--pyannote--xxx`）：
-    ```python
-    pipeline = Pipeline.from_pretrained(
-        "pyannote/speaker-diarization-community-1",
-        cache_dir=r"models",
-    )
-    ```
-
-请根据磁盘上实际目录结构调整。
+具体的模型调用方法
 
 ### Q6: `num_speakers` 传了没生效
 
@@ -232,67 +218,6 @@ pip install denoiser
 output = pipeline(audio_path, **pipeline_kwargs)
 ```
 
-## 使用 Google Colab (无需本地安装)
-
-如果不想在本地设置环境，可以直接在 Google Colab 中运行此项目，利用 Google 提供的免费 GPU 资源。
-
-[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/drive/1kY4jXzXvALmsTdYgGaDhzPovulid11Ks?usp=sharing)
-
-**在 Colab 中使用的步骤:**
-
-1.  **打开 Notebook**: 点击上面的 "Open In Colab" 按钮。
-2.  **设置运行时**: 菜单 → "代码执行程序" → "更改运行时类型" → 硬件加速器选择 "GPU" (推荐 T4)。
-3.  **运行单元格**:
-    *   安装依赖。
-    *   Hugging Face 登录（粘贴 Access Token）。
-    *   上传音频文件（推荐 `.wav`）。
-    *   定义处理函数。
-    *   执行分离（可设置 `NUM_SPEAKERS`）。
-    *   下载结果（打包为 `.zip` 并自动触发下载）。
-4.  **检查下载**: 在浏览器下载文件夹中查找 `separated_audio_colab.zip`，解压获得分离后的音频。
-
-**Colab 提示**:
-
-*   Colab 会话有时间限制，长时间不活动或总时长达到限制后环境会被重置，上传的文件和安装的库会丢失。
-*   确保在运行需要 Token 的单元格之前，已在 Hugging Face 网站上接受了 `pyannote/speaker-diarization-community-1` 等模型的使用条款。
-
-## 安装与设置
-
-1.  **克隆仓库**:
-    ```bash
-    git clone https://github.com/Magnoliar/Podcast-Speaker-Separator.git
-    cd podcast-speaker-separator
-    ```
-
-2.  **创建并激活虚拟环境 (推荐)**:
-    ```bash
-    python -m venv venv
-    # Windows
-    venv\Scripts\activate
-    # Linux / macOS
-    source venv/bin/activate
-    ```
-
-3.  **安装 PyTorch**:
-    根据操作系统和 CUDA 版本，访问 [PyTorch 官网](https://pytorch.org/get-started/locally/) 获取安装命令。例如（CPU 版本）：
-    ```bash
-    pip install torch torchvision torchaudio
-    ```
-    CUDA 11.8 版本:
-    ```bash
-    pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
-    ```
-
-4.  **安装其他依赖**:
-    ```bash
-    pip install -r requirements.txt
-    ```
-
-5.  **Hugging Face 认证**:
-    *   **方法一 (推荐)**: `huggingface-cli login`，粘贴 Access Token。
-    *   **方法二**: 运行脚本时用 `--token` 参数传入。
-
-6.  **Windows 用户额外步骤**: 参考上文 [Windows 特别注意事项](#windows-特别注意事项)，确保 FFmpeg shared 版本已下载，并在脚本中注册 DLL 目录。
 
 ## 模型下载与离线使用
 
@@ -320,48 +245,47 @@ pipeline = Pipeline.from_pretrained(
 
 ## 如何使用
 
-通过命令行运行 `separate_speakers.py` 脚本。
+### 方式一：直接修改脚本内路径运行
 
-**基本用法:**
+当前脚本没有命令行参数，输入/输出路径和说话人数都写在 `if __name__ == "__main__":` 里：
+
+```python
+if __name__ == "__main__":
+    INPUT_AUDIO = r"会议录音.wav"
+    OUTPUT_DIR = r".\output"
+    NUM_SPEAKERS = None
+```
+
+使用方法：
+
+1. 把 `INPUT_AUDIO` 改成你的音频文件路径。
+2. 把 `OUTPUT_DIR` 改成你想保存结果的目录。
+3. 如果知道说话人数，把 `NUM_SPEAKERS` 改成对应整数；不确定就保持 `None`。
+4. 运行：
 
 ```bash
-python separate_speakers.py -i /path/to/your/podcast.wav -o /path/to/output_directory
+python 4.0.4分离.py
 ```
 
 **参数说明:**
 
-*   `-i, --input`: **必需**。输入的音频文件路径。强烈推荐 `.wav` 格式。
-*   `-o, --output`: **必需**。保存分离后音频文件的目录。不存在时脚本会尝试创建。
-*   `--token`: **可选**。Hugging Face Hub 访问令牌。已用 `huggingface-cli login` 登录时可省略。
-*   `--num-speakers`: **可选**。整数，指定期望的说话人数，可帮助模型在语音重叠较多或声音相似时提高准确性。
+*   `INPUT_AUDIO`: 输入的音频文件路径。推荐 `.wav` 格式。
+*   `OUTPUT_DIR`: 保存分离后音频文件的目录。不存在时脚本会尝试创建。
+*   `NUM_SPEAKERS`: 可选。整数，指定期望的说话人数，可帮助模型在语音重叠较多或声音相似时提高准确性。`None` 表示自动检测。
 
 **示例:**
 
-```bash
-# 处理 "episode1.wav"，结果保存到 "separated_audio"
-python separate_speakers.py -i episode1.wav -o separated_audio
+```python
+# 处理 "会议录音.wav"，结果保存到 ".\output"
+INPUT_AUDIO = r"会议录音.wav"
+OUTPUT_DIR = r".\output"
+NUM_SPEAKERS = None
 
 # 明确告知模型有 2 位说话人
-python separate_speakers.py -i my_interview.wav -o output_files --num-speakers 2
-
-# 使用 --token 提供 HF Token
-python separate_speakers.py -i meeting.mp3 -o separated_meeting --token hf_YOUR_TOKEN_HERE
+INPUT_AUDIO = r"my_interview.wav"
+OUTPUT_DIR = r"output_files"
+NUM_SPEAKERS = 2
 ```
-
-**输出:**
-
-成功后，输出目录中会生成多个 `.wav` 文件，每个对应一个检测到的说话人，文件名格式：
-
-```
-<原始文件名>_speaker_SPEAKER_XX.wav
-```
-
-例如输入 `episode1.wav`，可能生成：
-
-*   `episode1_speaker_SPEAKER_00.wav`
-*   `episode1_speaker_SPEAKER_01.wav`
-
-这些文件长度与原始音频相同，包含对应说话人的语音片段，其他时间段为静音。
 
 ## 注意事项
 
