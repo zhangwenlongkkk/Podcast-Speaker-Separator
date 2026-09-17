@@ -15,58 +15,256 @@
 
 ## 环境要求
 
-1.  **Python**: 3.8 或更高版本推荐。
+1.  **Python**: 推荐 3.10 或更高版本（`pyannote.audio` 4.x 要求 Python ≥ 3.10）。
 2.  **pip**: Python 包管理器。
-3.  **ffmpeg**: 一个用于处理多媒体文件的强大工具。`torchaudio` 可能需要它来加载非 WAV 格式的音频（但强烈建议输入使用 `.wav` 格式）。
-    *   **Linux (Ubuntu/Debian):** `sudo apt update && sudo apt install ffmpeg`
-    *   **macOS (using Homebrew):** `brew install ffmpeg`
-    *   **Windows:** 从 [ffmpeg官网](https://ffmpeg.org/download.html) 下载并将其添加到系统 PATH。
+3.  **ffmpeg**: 用于处理多媒体文件的工具。`pyannote.audio` 4.x 通过 `torchcodec` 调用 FFmpeg 解码音频。
+    *   **Linux (Ubuntu/Debian)**: `sudo apt update && sudo apt install ffmpeg`
+    *   **macOS (Homebrew)**: `brew install ffmpeg`
+    *   **Windows**: 见下方 [Windows 特别注意事项](#windows-特别注意事项)。**务必下载 shared 版本**，不要用 static 版本。
 4.  **Hugging Face 账户**: 需要访问 [Hugging Face](https://huggingface.co/) 注册账户。
 5.  **Hugging Face 访问令牌 (Token)**:
-    *   在 Hugging Face 网站的用户设置 -> Access Tokens 中创建一个具有 'read' 权限的令牌。
-    *   你可以通过命令行登录 (`huggingface-cli login`) 或在运行脚本时通过 `--token` 参数提供。
-6.  **同意模型使用条款**: `pyannote.audio` 的预训练模型托管在 Hugging Face Hub 上。你需要访问以下模型页面并同意其使用条款：
-    *   **主要模型:** [pyannote/speaker-diarization-3.1](https://hf.co/pyannote/speaker-diarization-3.1)
-    *   **依赖模型 (例如):** [pyannote/segmentation-3.0](https://hf.co/pyannote/segmentation-3.0) (或模型依赖的其他分割模型)
-    *   **依赖模型:** [pyannote/embedding](https://huggingface.co/pyannote/embedding) (或模型依赖的其他嵌入模型)
-    *   *注意：具体依赖可能随模型版本变化，如果遇到加载错误，请检查 Hugging Face 上的模型卡片和错误信息。*
+    *   在 Hugging Face 网站的用户设置 → Access Tokens 中创建一个具有 `read` 权限的令牌。
+    *   可以通过 `huggingface-cli login` 登录，或在运行脚本时通过 `--token` 参数提供。
+6.  **同意模型使用条款**: `pyannote.audio` 的预训练模型托管在 Hugging Face Hub 上。需要访问以下模型页面并同意其使用条款：
+    *   **主要模型**: [pyannote/speaker-diarization-community-1](https://hf.co/pyannote/speaker-diarization-community-1)
+    *   **依赖模型**: [pyannote/segmentation-3.0](https://hf.co/pyannote/segmentation-3.0)
+    *   **依赖模型**: [pyannote/embedding](https://huggingface.co/pyannote/embedding)
+    *   *具体依赖可能随模型版本变化。如遇加载错误，请查看模型卡片和错误信息。*
+
+## Windows 特别注意事项
+
+Windows 下 `pyannote.audio` 4.x 最常见的坑都集中在 `torchcodec` 与 FFmpeg 上。你当前脚本里已经处理了其中一步，但还有几个细节需要确认。
+
+### 1. FFmpeg 必须使用 shared 版本
+
+`torchcodec` 需要的是 FFmpeg 的**动态链接库（DLL）**，而不是静态链接的 `ffmpeg.exe`。
+
+*   **错误示范**：下载 `ffmpeg-n7.x-win64-gpl-7.x.zip`（静态版）。命令行能用，但 `torchcodec` 找不到 DLL。
+*   **正确做法**：下载文件名包含 **`shared`** 的版本，例如：
+    *   `ffmpeg-n7.1.x-win64-gpl-shared-7.1.zip`
+    *   下载地址：<https://www.gyan.dev/ffmpeg/builds/> 或 <https://github.com/BtbN/FFmpeg-Builds/releases>
+*   解压后，记住 `bin` 目录的完整路径，例如 `E:\ffmpeg\bin`。
+
+### 2. 在脚本最顶部注册 DLL 目录
+
+你当前脚本里已经这样做了，位置是正确的：
+
+```python
+import os
+import sys
+
+FFMPEG_BIN = r"E:\ffmpeg\bin"
+if os.path.isdir(FFMPEG_BIN):
+    os.add_dll_directory(FFMPEG_BIN)
+
+# 然后再导入其他库
+import torch
+from pyannote.audio import Pipeline
+```
+
+**关键点**：`os.add_dll_directory` 必须在任何可能触发 `torchcodec` 加载的库（如 `pyannote.audio`）之前调用。你脚本里的顺序是对的。
+
+### 3. 验证 torchcodec 是否加载成功
+
+在命令行单独跑一句：
+
+```python
+import torchcodec
+print(torchcodec.__version__)
+```
+
+如果输出版本号，说明 DLL 已经通了。如果报 `Could not load libtorchcodec`，说明 FFmpeg DLL 仍未正确加载，检查：
+
+*   `E:\ffmpeg\bin` 下是否确实有 `avcodec-*.dll`、`avformat-*.dll`、`avutil-*.dll` 等文件。
+*   这些 DLL 是不是 shared 版本解压出来的。
+*   `FFMPEG_BIN` 路径有没有写错。
+
+### 4. 备选方案：手动复制 DLL
+
+如果添加目录后仍报错，可以把 FFmpeg `bin` 目录下**所有 `.dll` 文件**复制到 `torchcodec` 的安装目录：
+
+```
+C:\Users\<用户名>\.conda\envs\<环境名>\Lib\site-packages\torchcodec\
+```
+
+这是很多 Windows 用户的最终解决方案，能强制 `torchcodec` 在同一目录下找到依赖。
+
+## 脚本当前行为说明
+
+你当前脚本里有几个地方需要特别注意，它们直接影响能否成功运行。
+
+### 1. 模型加载方式：本地目录直接加载
+
+脚本里写的是：
+
+```python
+pipeline = Pipeline.from_pretrained(
+    r"models/speaker-diarization-community-1"
+)
+```
+
+这是**本地目录直接加载**模式，要求 `models/speaker-diarization-community-1/` 下面直接是 `config.yaml`、`pytorch_model.bin` 这类文件。
+
+如果磁盘上实际是 Hugging Face cache 结构：
+
+```
+models/
+  models--pyannote--speaker-diarization-community-1/
+    snapshots/
+      xxxxx/
+        config.yaml
+        ...
+```
+
+那就必须改成：
+
+```python
+pipeline = Pipeline.from_pretrained(
+    "pyannote/speaker-diarization-community-1",
+    cache_dir=r"models",
+)
+```
+
+**请先确认 `models/` 目录的实际结构**，再决定用哪种写法。
+
+### 2. 音频加载与 pipeline 调用
+
+脚本用 `soundfile` 把音频读成了 `waveform`，但实际调用 pipeline 时传的是**文件路径**：
+
+```python
+output = pipeline(audio_path)
+```
+
+这意味着 `pyannote` 内部仍会走它自己的 IO 逻辑，也就是仍会碰 `torchcodec`。你前面用 `soundfile` 读的波形，只用于后面的音轨分离，没有用于 pipeline 分析本身。
+
+如果 `torchcodec` 已经修好，这样写没问题；如果没修好，pipeline 调用这一步仍会报 `AudioDecoder` 相关的错。
+
+### 3. `num_speakers` 没有真正传进去
+
+脚本里定义了 `pipeline_kwargs`：
+
+```python
+pipeline_kwargs = {}
+if num_speakers is not None:
+    pipeline_kwargs["num_speakers"] = num_speakers
+
+output = pipeline(audio_path)   # ← 这里没传 **pipeline_kwargs
+```
+
+`num_speakers` 参数被吞了，模型永远走自动检测。应改成：
+
+```python
+output = pipeline(audio_path, **pipeline_kwargs)
+```
+
+## 常见问题（FAQ）
+
+### Q1: 运行时报 `torchcodec is not installed correctly so built-in audio decoding will fail`
+
+**原因**：`torchcodec` 找不到 FFmpeg 的 DLL。
+
+**解决**：
+1. 确认下载的是 FFmpeg **shared** 版本（见上文）。
+2. 在脚本最顶部调用 `os.add_dll_directory(FFMPEG_BIN)`。
+3. 或把 FFmpeg `bin` 下的所有 DLL 复制到 `torchcodec` 安装目录。
+
+### Q2: 运行时报 `NameError: name 'AudioDecoder' is not defined`
+
+**原因**：这是 Q1 的连锁反应。`pyannote` 内部调用 `torchcodec.AudioDecoder`，但 `torchcodec` 因 DLL 加载失败而没有完成初始化，导致 `AudioDecoder` 这个名字未定义。
+
+**解决**：按 Q1 修复 `torchcodec` 即可。修复前也可以临时用 `soundfile` 读取音频、把波形以字典形式传给 pipeline 来绕过：
+
+```python
+output = pipeline(
+    {"waveform": waveform, "sample_rate": sample_rate},
+    **pipeline_kwargs,
+)
+```
+
+不过要注意：`community-1` 这条 pipeline 对纯内存字典的支持，不同版本行为不完全一致。如果传字典仍报 `AudioDecoder` 相关的错，说明这条 pipeline 没完全走内存路径，最终仍得靠 `os.add_dll_directory` 把 FFmpeg DLL 修好。
+
+### Q3: `pip install pyannote.audio` 报版本找不到
+
+**原因**：Python 版本过低。`pyannote.audio` 4.x 要求 Python ≥ 3.10。如果用的是 3.8 / 3.9，pip 会自动忽略 4.x 的版本。
+
+**解决**：升级 Python，或改用 `pyannote.audio==3.1.1`（3.x 对 Python 版本要求较低，但 API 与 4.x 不同）。
+
+### Q4: `pip` 报 `funasr 1.2.9 requires hydra-core>=1.3.2, but you have hydra-core 0.11.3`
+
+**原因**：安装了 `denoiser` 之类的老库，它依赖 `hydra-core==0.11.3`，与 `funasr` 要求的 `>=1.3.2` 冲突。
+
+**解决**：给 `denoiser` 单独建一个环境，不要和 `funasr`、`pyannote` 混在一起。
+
+```bash
+conda create -n denoiser_env python=3.8 -y
+conda activate denoiser_env
+pip install torch==1.11.0 torchaudio==0.11.0
+pip install denoiser
+```
+
+### Q5: 模型加载报错，提示找不到 config 或权重文件
+
+**原因**：模型目录结构和 `Pipeline.from_pretrained` 的用法不匹配。
+
+**解决**：两种写法不能混：
+
+*   **本地目录直接加载**（目录本身就是模型）：
+    ```python
+    pipeline = Pipeline.from_pretrained(r"models/speaker-diarization-community-1")
+    ```
+*   **Hugging Face cache 结构**（目录下是 `models--pyannote--xxx`）：
+    ```python
+    pipeline = Pipeline.from_pretrained(
+        "pyannote/speaker-diarization-community-1",
+        cache_dir=r"models",
+    )
+    ```
+
+请根据磁盘上实际目录结构调整。
+
+### Q6: `num_speakers` 传了没生效
+
+**原因**：脚本里定义了 `pipeline_kwargs` 但调用时没展开。
+
+**解决**：
+
+```python
+output = pipeline(audio_path, **pipeline_kwargs)
+```
 
 ## 使用 Google Colab (无需本地安装)
 
-如果你不想在本地设置环境，可以直接在 Google Colab 中运行此项目，利用 Google 提供的免费 GPU 资源。
+如果不想在本地设置环境，可以直接在 Google Colab 中运行此项目，利用 Google 提供的免费 GPU 资源。
 
 [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/drive/1kY4jXzXvALmsTdYgGaDhzPovulid11Ks?usp=sharing)
-*(点击上方按钮直接在 Colab 中打开)*
 
 **在 Colab 中使用的步骤:**
 
-1.  **打开 Notebook:** 点击上面的 "Open In Colab" 按钮。
-2.  **设置运行时:**
-    *   在 Colab 菜单中，选择 "代码执行程序" (Runtime) -> "更改运行时类型" (Change runtime type)。
-    *   在 "硬件加速器" (Hardware accelerator) 下拉菜单中选择 "GPU" (推荐 T4 GPU)。点击 "保存"。
-3.  **运行单元格:** 按顺序执行 Notebook 中的代码单元格：
-    *   **安装依赖:** 运行第一个单元格来安装所有必需的库。
-    *   **Hugging Face 登录:** 运行第二个单元格。它会要求你登录 Hugging Face 账户（需要事先注册并接受模型使用条款，详见"环境要求"部分）。粘贴你的 Hugging Face Access Token。
-    *   **上传音频文件:** 运行第三个单元格，点击 "选择文件" 按钮上传你的播客音频文件 (推荐 `.wav` 格式)。
-    *   **定义处理函数:** 运行第四个单元格来定义核心的分离逻辑 (只需运行一次)。
-    *   **执行分离:** 运行第五个单元格开始处理你的音频文件。你可以在这里设置 `NUM_SPEAKERS` 变量（如果知道说话人数量）。处理过程可能需要一些时间，请耐心等待。
-    *   **下载结果:** 处理完成后，运行最后一个单元格。它会将输出目录中的所有分离文件打包成一个 `.zip` 文件，并自动触发浏览器下载。
-4.  **检查下载:** 在你的浏览器下载文件夹中查找名为 `separated_audio_colab.zip` (或类似名称) 的文件。解压后即可获得分离后的音频。
+1.  **打开 Notebook**: 点击上面的 "Open In Colab" 按钮。
+2.  **设置运行时**: 菜单 → "代码执行程序" → "更改运行时类型" → 硬件加速器选择 "GPU" (推荐 T4)。
+3.  **运行单元格**:
+    *   安装依赖。
+    *   Hugging Face 登录（粘贴 Access Token）。
+    *   上传音频文件（推荐 `.wav`）。
+    *   定义处理函数。
+    *   执行分离（可设置 `NUM_SPEAKERS`）。
+    *   下载结果（打包为 `.zip` 并自动触发下载）。
+4.  **检查下载**: 在浏览器下载文件夹中查找 `separated_audio_colab.zip`，解压获得分离后的音频。
 
-**Colab 使用提示:**
+**Colab 提示**:
 
-*   Colab 会话有时间限制，长时间不活动或总运行时长达到限制后，环境会被重置，上传的文件和安装的库会丢失。
-*   确保在运行需要 Token 的单元格之前，已经在 Hugging Face 网站上接受了 `pyannote/speaker-diarization-3.1` 等模型的使用条款。
+*   Colab 会话有时间限制，长时间不活动或总时长达到限制后环境会被重置，上传的文件和安装的库会丢失。
+*   确保在运行需要 Token 的单元格之前，已在 Hugging Face 网站上接受了 `pyannote/speaker-diarization-community-1` 等模型的使用条款。
 
 ## 安装与设置
 
-1.  **克隆仓库:**
+1.  **克隆仓库**:
     ```bash
     git clone https://github.com/Magnoliar/Podcast-Speaker-Separator.git
     cd podcast-speaker-separator
     ```
 
-2.  **创建并激活虚拟环境 (推荐):**
+2.  **创建并激活虚拟环境 (推荐)**:
     ```bash
     python -m venv venv
     # Windows
@@ -75,27 +273,50 @@
     source venv/bin/activate
     ```
 
-3.  **安装 PyTorch:**
-    根据你的操作系统和 CUDA 版本（如果使用 GPU），访问 [PyTorch 官网](https://pytorch.org/get-started/locally/) 获取最适合你的安装命令，并执行它。例如（CPU 版本）：
+3.  **安装 PyTorch**:
+    根据操作系统和 CUDA 版本，访问 [PyTorch 官网](https://pytorch.org/get-started/locally/) 获取安装命令。例如（CPU 版本）：
     ```bash
     pip install torch torchvision torchaudio
     ```
-    或 CUDA 11.8 版本:
+    CUDA 11.8 版本:
     ```bash
     pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
     ```
 
-4.  **安装其他依赖:**
+4.  **安装其他依赖**:
     ```bash
     pip install -r requirements.txt
     ```
 
-5.  **Hugging Face 认证:**
-    *   **方法一 (推荐):** 登录 Hugging Face CLI。运行以下命令并粘贴你的 Access Token：
-        ```bash
-        huggingface-cli login
-        ```
-    *   **方法二:** 在运行脚本时使用 `--token` 参数传入你的 Access Token。
+5.  **Hugging Face 认证**:
+    *   **方法一 (推荐)**: `huggingface-cli login`，粘贴 Access Token。
+    *   **方法二**: 运行脚本时用 `--token` 参数传入。
+
+6.  **Windows 用户额外步骤**: 参考上文 [Windows 特别注意事项](#windows-特别注意事项)，确保 FFmpeg shared 版本已下载，并在脚本中注册 DLL 目录。
+
+## 模型下载与离线使用
+
+如果需要在无网络环境运行，可以提前把模型下载到本地。推荐使用 Hugging Face cache 结构，便于管理：
+
+```python
+from pyannote.audio import Pipeline
+
+pipeline = Pipeline.from_pretrained(
+    "pyannote/speaker-diarization-community-1",
+    cache_dir=r"models",   # 模型会缓存到 models/ 下
+)
+```
+
+离线加载时，把 `models` 目录整体拷到目标机器，然后：
+
+```python
+pipeline = Pipeline.from_pretrained(
+    "pyannote/speaker-diarization-community-1",
+    cache_dir=r"models",
+)
+```
+
+注意：如果 `models` 目录下已经是 `models--pyannote--xxx` 结构，用 `cache_dir` 方式；如果目录本身就是模型文件，则直接传目录路径给 `from_pretrained`。
 
 ## 如何使用
 
@@ -109,43 +330,45 @@ python separate_speakers.py -i /path/to/your/podcast.wav -o /path/to/output_dire
 
 **参数说明:**
 
-*   `-i, --input`: **必需**. 输入的音频文件路径。强烈推荐使用 `.wav` 格式以获得最佳兼容性。
-*   `-o, --output`: **必需**. 用于保存分离后音频文件的目录。如果目录不存在，脚本会尝试创建它。
-*   `--token`: **可选**. 你的 Hugging Face Hub 访问令牌。如果已使用 `huggingface-cli login` 登录，则无需提供。
-*   `--num-speakers`: **可选**. 整数，指定你期望音频中有多少位说话人。这可以帮助模型在某些情况下（例如语音重叠较多或声音相似时）提高准确性，但不是必需的。
+*   `-i, --input`: **必需**。输入的音频文件路径。强烈推荐 `.wav` 格式。
+*   `-o, --output`: **必需**。保存分离后音频文件的目录。不存在时脚本会尝试创建。
+*   `--token`: **可选**。Hugging Face Hub 访问令牌。已用 `huggingface-cli login` 登录时可省略。
+*   `--num-speakers`: **可选**。整数，指定期望的说话人数，可帮助模型在语音重叠较多或声音相似时提高准确性。
 
 **示例:**
 
 ```bash
-# 处理名为 "episode1.wav" 的文件，结果保存到 "separated_audio" 目录
+# 处理 "episode1.wav"，结果保存到 "separated_audio"
 python separate_speakers.py -i episode1.wav -o separated_audio
 
-# 处理文件，并明确告知模型有 2 位说话人
+# 明确告知模型有 2 位说话人
 python separate_speakers.py -i my_interview.wav -o output_files --num-speakers 2
 
-# 处理文件，并使用 --token 参数提供 HF Token
+# 使用 --token 提供 HF Token
 python separate_speakers.py -i meeting.mp3 -o separated_meeting --token hf_YOUR_TOKEN_HERE
 ```
 
 **输出:**
 
-脚本执行成功后，会在指定的输出目录 (`-o` 参数指定的目录) 中生成多个 `.wav` 文件。每个文件对应一个检测到的说话人，文件名格式通常为：
+成功后，输出目录中会生成多个 `.wav` 文件，每个对应一个检测到的说话人，文件名格式：
 
-`<原始文件名>_speaker_SPEAKER_XX.wav`
+```
+<原始文件名>_speaker_SPEAKER_XX.wav
+```
 
-例如，对于输入 `episode1.wav`，可能会生成：
+例如输入 `episode1.wav`，可能生成：
 
 *   `episode1_speaker_SPEAKER_00.wav`
 *   `episode1_speaker_SPEAKER_01.wav`
 
-这些文件的长度与原始音频相同，包含了对应说话人的语音片段，其他时间段则为静音。
+这些文件长度与原始音频相同，包含对应说话人的语音片段，其他时间段为静音。
 
 ## 注意事项
 
-*   **处理时间**: 音频文件的时长和你的硬件（CPU/GPU）会显著影响处理时间。长音频可能需要较长时间。
-*   **准确性**: `pyannote.audio` 是一个强大的库，但在非常嘈杂的环境、说话人声音非常相似或语音重叠严重的情况下，分离结果可能不完美。
-*   **内存消耗**: 处理非常长的音频文件可能会消耗大量内存（尤其是 RAM 和 GPU 显存）。
-*   **音频格式**: 虽然脚本可能能处理 `ffmpeg` 支持的其他格式（如 MP3），但强烈建议将输入音频预先转换为 `.wav` 格式（例如，16kHz 单声道 PCM）以获得最佳效果和兼容性。
+*   **处理时间**: 音频时长和硬件（CPU/GPU）会显著影响处理时间，长音频可能需要较长时间。
+*   **准确性**: `pyannote.audio` 很强大，但在嘈杂环境、说话人声音相似或语音重叠严重时，分离结果可能不完美。
+*   **内存消耗**: 处理非常长的音频可能消耗大量内存（RAM 和 GPU 显存）。
+*   **音频格式**: 虽然脚本可能能处理 FFmpeg 支持的其他格式（如 MP3），但强烈建议输入预先转换为 `.wav` 格式（例如 16kHz 单声道 PCM）以获得最佳效果和兼容性。
 
 ## 致谢
 
